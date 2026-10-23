@@ -132,6 +132,11 @@ auprc_of <- function(p, y) {
     pr.curve(scores.class0 = p, weights.class0 = y)$auc.integral
 }
 
+# AUROC is reported in Table 2 only, for comparison with published models
+auroc_of <- function(p, y) {
+    roc.curve(scores.class0 = p, weights.class0 = y)$auc
+}
+
 # Flags the top 5% of predicted risk and counts the transfusions caught
 top_frac_capture <- function(p, y, frac = TOP_FRAC) {
     n_flag  <- ceiling(frac * length(p))
@@ -152,12 +157,14 @@ colnames(pred_mat) <- names(model_names)
 boot_stats <- function(idx) {
     y        <- actual_outcomes[idx]
     a        <- apply(pred_mat[idx, ], 2, auprc_of, y = y)
+    r        <- apply(pred_mat[idx, ], 2, auroc_of, y = y)
     cap_proc <- top_frac_capture(pred_mat[idx, "proc"], y)
     cap_both <- top_frac_capture(pred_mat[idx, "both"], y)
     c(
         setNames(a,           paste0("auprc_", names(a))),
         # Lift is AUPRC relative to the resample's own prevalence
         setNames(a / mean(y), paste0("lift_",  names(a))),
+        setNames(r,           paste0("auroc_", names(r))),
         delta_proc_vs_patient    = a[["proc"]]    - a[["patient"]],
         delta_surgeon_vs_patient = a[["surgeon"]] - a[["patient"]],
         delta_both_vs_patient    = a[["both"]]    - a[["patient"]],
@@ -227,7 +234,10 @@ auprc_vec <- c(
     pr_cb_both$auc.integral
 )
 
-# First row is the no-skill baseline, whose AUPRC equals prevalence
+# Full test-set AUROC per model, from the bootstrap point estimates
+auroc_vec <- point_est[paste0("auroc_", names(model_names))]
+
+# First row is the no-skill baseline, whose AUPRC equals prevalence and AUROC is 0.5
 # Deltas are against the patient-only model, so its own row is left empty
 discrim_dt <- data.table(
     Model           = c("No-skill baseline", unname(model_names)),
@@ -245,7 +255,9 @@ discrim_dt <- data.table(
             character(1)
         )
     ),
-    Brier = c(NA, round(c(brier_cb_patient, brier_cb_proc, brier_cb_surgeon, brier_cb_both), 4))
+    Brier = c(NA, round(c(brier_cb_patient, brier_cb_proc, brier_cb_surgeon, brier_cb_both), 4)),
+    AUROC = round(c(0.5, unname(auroc_vec)), 3),
+    AUROC_95CI = c(NA, vapply(paste0("auroc_", names(model_names)), fmt_ci, character(1)))
 )
 
 print(discrim_dt)
